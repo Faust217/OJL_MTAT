@@ -6,6 +6,8 @@ from transcriber import transcribe_audio
 #Summarizer
 from summarizer import generate_summary
 from pydantic import BaseModel
+#Sentiment
+from sentiment_analyzer import analyze_sentiment
 ########################################
 
 
@@ -41,3 +43,9 @@ class TranscriptText(BaseModel):
 async def summarize(transcript: TranscriptText):
     summary = generate_summary(transcript.text)
     return {"summary": summary}
+
+#Recerive transcribed text and analysis sentiment
+@app.post("/sentiment")
+def get_sentiment(text: dict):
+    result = analyze_sentiment(text["text"])
+    return result
