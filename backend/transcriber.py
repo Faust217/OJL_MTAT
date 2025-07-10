@@ -2,9 +2,15 @@ from faster_whisper import WhisperModel
 
 model = WhisperModel("base", device="cpu", compute_type="int8")
 
-def transcribe_audio(file_path: str) -> str:
+def transcribe_audio(file_path: str):
     segments, _ = model.transcribe(file_path)
-    result = ""
+    transcript = []
+
     for segment in segments:
-        result += segment.text + " "
-    return result.strip()
+        transcript.append({
+            "start": float(segment.start),
+            "end": float(segment.end),
+            "text": segment.text.strip()
+        })
+
+    return transcript
