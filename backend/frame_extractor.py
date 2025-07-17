@@ -1,35 +1,27 @@
 import cv2
 import os
 
-def extract_frames(video_path, output_folder='frames', interval=30):
-    """
-    从视频中每隔 interval 帧提取一帧图像保存到指定目录。
-    参数:
-    - video_path: 视频文件路径
-    - output_folder: 提取的帧保存的文件夹名
-    - interval: 每隔多少帧提取一次
-    """
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+def extract_frames(video_path, output_dir="extracted_frames", interval_sec=30):
+    vidcap = cv2.VideoCapture(video_path)
+    fps = vidcap.get(cv2.CAP_PROP_FPS)
+    interval = int(fps * interval_sec)  # 每 interval 秒提取一帧
 
-    cap = cv2.VideoCapture(video_path)
-    frame_count = 0
-    saved_count = 0
+    success, image = vidcap.read()
+    count = 0
+    saved = 0
+    frame_paths = []
 
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
+    os.makedirs("extracted_frames", exist_ok=True)
 
-        if frame_count % interval == 0:
-            filename = os.path.join(output_folder, f"frame_{saved_count}.jpg")
-            cv2.imwrite(filename, frame)
-            saved_count += 1
+    while success:
+        if count % interval == 0:
+            frame_filename = f"extracted_frames/frame{saved}.jpg"
+            cv2.imwrite(frame_filename, image)
+            frame_paths.append(frame_filename)
+            saved += 1
+        success, image = vidcap.read()
+        count += 1
 
-        frame_count += 1
-
-    cap.release()
-    print(f"✅ 提取完成！共保存 {saved_count} 张帧图像。")
-
-if __name__ == "__main__":
-    extract_frames("testDF.mp4", output_folder="extracted_frames", interval=30)
+    vidcap.release()
+    print(f"✅ 提取完成！共保存 {saved} 张帧图像。")
+    return frame_paths

@@ -1,8 +1,8 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import axios from 'axios';
 import { PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
-import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 function MeetingAnalyzer() {
   const [file, setFile] = useState(null);
@@ -11,11 +11,8 @@ function MeetingAnalyzer() {
   const [sentiment, setSentiment] = useState(null);
   const [videoResult, setVideoResult] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [sentimentLoading, setSentimentLoading] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
-  const [showSentiment, setShowSentiment] = useState(false);
-  const sentimentChartRef = useRef(null);
-  const videoChartRef = useRef(null);
+  const [mergedView, setMergedView] = useState(true);
 
   const formatTime = (seconds) => {
     const min = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -40,15 +37,15 @@ function MeetingAnalyzer() {
       });
 
       const resultType = res.data.type;
-      if (resultType === "audio") {
-        setTranscript(res.data.transcript);
-        setSummary(res.data.summary);
-        setSentiment(res.data.sentiment);
-      } else if (resultType === "video") {
-        setVideoResult({
+
+      if (resultType === "audio" || resultType === "video") {
+        setTranscript(res.data.transcript || []);
+        setSummary(res.data.summary || '');
+        setSentiment(res.data.sentiment || null);
+        setVideoResult(res.data.frames_checked ? {
           framesChecked: res.data.frames_checked,
           fakeFrames: res.data.fake_frames
-        });
+        } : null);
       } else {
         alert("Unexpected response type.");
       }
@@ -57,143 +54,159 @@ function MeetingAnalyzer() {
       alert("❌ Upload or analysis failed.");
     } finally {
       setLoading(false);
-      setSentimentLoading(false);
     }
   };
+
+  const COLORS = ['#ff6b6b', '#4caf50', '#8884d8'];
 
   const sentimentData = sentiment ? [
     { name: 'Positive', value: sentiment.filter(s => s.sentiment === 'positive').length },
     { name: 'Neutral', value: sentiment.filter(s => s.sentiment === 'neutral').length },
-    { name: 'Negative', value: sentiment.filter(s => s.sentiment === 'negative').length },
+    { name: 'Negative', value: sentiment.filter(s => s.sentiment === 'negative').length }
   ] : [];
 
-  const pieData = videoResult ? [
+  const videoPieData = videoResult ? [
     { name: 'Fake Frames', value: videoResult.fakeFrames },
     { name: 'Real Frames', value: videoResult.framesChecked - videoResult.fakeFrames }
   ] : [];
 
-  const COLORS = ['#ff6b6b', '#4caf50', '#8884d8'];
+  const handleExport = () => {
+    const doc = new jsPDF();
+    doc.setFontSize(14);
+    doc.text("Meeting Analysis Report", 20, 20);
+
+    if (summary) {
+      doc.text("Summary:", 20, 30);
+      doc.setFontSize(12);
+      doc.text(summary, 20, 38, { maxWidth: 170 });
+      doc.setFontSize(14);
+    }
+
+    if (sentiment) {
+      doc.text("\nSentiment Segments:", 20, doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : 80);
+      autoTable(doc, {
+        startY: doc.lastAutoTable ? doc.lastAutoTable.finalY + 15 : 90,
+        head: [['Time', 'Sentiment', 'Score']],
+        body: sentiment.map(seg => [
+          `${formatTime(seg.start)} - ${formatTime(seg.end)}`,
+          seg.sentiment,
+          seg.score.toFixed(2)
+        ])
+      });
+    }
+
+    doc.save((file?.name?.split('.')[0] || 'meeting') + '_Report.pdf');
+  };
 
   return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ marginBottom: '1rem' }}>
-        <input
-          type="file"
-          accept="audio/*,video/*"
-          onChange={e => setFile(e.target.files[0])}
-          style={{ padding: '0.4rem', marginRight: '1rem' }}
-        />
-        <button
-          onClick={handleUpload}
-          style={{ padding: '0.5rem 1.5rem', fontSize: '1rem', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-        >
-          Upload & Analyze
-        </button>
-      </div>
+    <div style={{ padding: '2rem', fontFamily: 'Arial, sans-serif', maxWidth: '800px', margin: 'auto' }}>
+      <h1 style={{ fontSize: '2rem', marginBottom: '1.5rem' }}>🎙 Meeting Analyzer</h1>
+
+      <input
+        type="file"
+        accept="audio/*,video/*"
+        onChange={e => setFile(e.target.files[0])}
+        style={{ marginBottom: '1rem' }}
+      />
+      <br />
+
+      <button onClick={handleUpload} style={{ padding: '0.5rem 1.5rem', fontSize: '1rem', backgroundColor: '#4CAF50', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+        Upload & Analyze
+      </button>
 
       {loading && <p style={{ marginTop: '1rem' }}>⏳ Analyzing file, please wait...</p>}
 
       {transcript.length > 0 && (
-        <div style={{ marginTop: '2rem', textAlign: 'left', border: '1px solid #ddd', padding: '1rem', borderRadius: '8px' }}>
-          <h3>📄 Transcript</h3>
-          <button onClick={() => setShowTranscript(!showTranscript)}>{showTranscript ? 'Hide Transcript' : 'Show Transcript'}</button>
-          {showTranscript && transcript.map((seg, idx) => (
-            <p key={idx}><strong>🕒 {formatTime(seg.start)} - {formatTime(seg.end)}:</strong> {seg.text}</p>
-          ))}
-        </div>
-      )}
+        <div style={{ marginTop: '2rem' }}>
+          <h2>📝 Transcription + Sentiment</h2>
+          <button onClick={() => setShowTranscript(!showTranscript)} style={{ marginBottom: '1rem' }}>
+            {showTranscript ? '⬆️ Hide' : '⬇️ Show'}
+          </button>
 
-      {summary && (
-        <div style={{ marginTop: '2rem', textAlign: 'left', border: '1px solid #ddd', padding: '1rem', borderRadius: '8px', backgroundColor: '#f9f9f9' }}>
-          <h3>📌 Summary</h3>
-          <pre style={{ whiteSpace: 'pre-wrap' }}>{summary}</pre>
-        </div>
-      )}
-
-      {sentiment && !sentimentLoading && (
-        <div style={{ marginTop: '2rem', textAlign: 'left', border: '1px solid #ccc', padding: '1rem', borderRadius: '8px', backgroundColor: '#e0f7fa' }}>
-          <h3>🧠 Sentiment Analysis</h3>
-          <button onClick={() => setShowSentiment(!showSentiment)}>{showSentiment ? 'Hide Details' : 'Show Details'}</button>
-          {showSentiment && (
-            <div>
-              {sentiment.map((seg, idx) => (
-                <p key={idx}><strong>{formatTime(seg.start)} - {formatTime(seg.end)}:</strong> {seg.sentiment} ({seg.score.toFixed(2)})</p>
-              ))}
-              <div ref={sentimentChartRef} style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-                <PieChart width={300} height={250}>
-                  <Pie data={sentimentData} cx={150} cy={120} innerRadius={50} outerRadius={90} dataKey="value" label>
-                    {sentimentData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                  <Legend />
-                </PieChart>
-              </div>
+          {showTranscript && (
+            <div style={{ padding: '1rem', backgroundColor: '#f9f9f9', borderRadius: '6px' }}>
+              {transcript.map((seg, idx) => {
+                const senti = sentiment?.[idx];
+                return (
+                  <p key={idx} style={{ marginBottom: '0.8rem' }}>
+                    <strong>🕒 {formatTime(seg.start)} - {formatTime(seg.end)}</strong>: {seg.text}
+                    {senti && (
+                      <span> → <strong>{senti.sentiment}</strong> ({senti.score.toFixed(2)})</span>
+                    )}
+                  </p>
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
+      {summary && (
+        <div style={{ marginTop: '2rem' }}>
+          <h2>📌 Summary</h2>
+          <pre style={{ whiteSpace: 'pre-wrap' }}>{summary}</pre>
+        </div>
+      )}
+
+      {sentimentData.length > 0 && (
+        <div style={{ marginTop: '2rem' }}>
+          <h2>🧠 Sentiment Overview</h2>
+          <PieChart width={300} height={250}>
+            <Pie
+              data={sentimentData}
+              cx={150}
+              cy={120}
+              innerRadius={50}
+              outerRadius={90}
+              fill="#8884d8"
+              paddingAngle={3}
+              dataKey="value"
+              label
+            >
+              {sentimentData.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+        </div>
+      )}
+
       {videoResult && (
-        <div style={{ marginTop: '2rem', textAlign: 'left', border: '2px solid #ffc107', padding: '1rem', borderRadius: '8px', backgroundColor: '#fff8e1' }}>
-          <h3>🎥 Deepfake Video Analysis</h3>
-          <p><strong>Total Frames Analyzed:</strong> {videoResult.framesChecked}</p>
-          <p><strong>Fake Frames Detected:</strong> {videoResult.fakeFrames}</p>
-          <p><strong>Fake Percentage:</strong> {(videoResult.fakeFrames / videoResult.framesChecked * 100).toFixed(2)}%</p>
+        <div style={{ marginTop: '2rem' }}>
+          <h2>🎥 Deepfake Detection</h2>
+          <p>Total Frames Analyzed: {videoResult.framesChecked}</p>
+          <p>Fake Frames Detected: {videoResult.fakeFrames}</p>
+          <p>Fake Percentage: {(videoResult.fakeFrames / videoResult.framesChecked * 100).toFixed(2)}%</p>
 
-          <div ref={videoChartRef} style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-            <PieChart width={300} height={250}>
-              <Pie data={pieData} cx={150} cy={120} innerRadius={50} outerRadius={90} dataKey="value" label>
-                {pieData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </div>
-
-          <p style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#333' }}>
-            ⚠️ This result is for reference only. Please verify the authenticity of the meeting participants yourself. The goal is to reduce potential risks and raise user awareness.
-          </p>
+          <PieChart width={300} height={250}>
+            <Pie
+              data={videoPieData}
+              cx={150}
+              cy={120}
+              innerRadius={50}
+              outerRadius={90}
+              fill="#8884d8"
+              paddingAngle={3}
+              dataKey="value"
+              label
+            >
+              {videoPieData.map((entry, index) => (
+                <Cell key={`cell-video-${index}`} fill={COLORS[index % COLORS.length]} />
+              ))}
+            </Pie>
+            <Tooltip />
+            <Legend />
+          </PieChart>
+          <p style={{ fontSize: '0.9rem', color: '#666' }}>⚠️ This result is for reference only. Please verify the authenticity of participants yourself.</p>
         </div>
       )}
 
       {(summary || sentiment || videoResult) && (
         <div style={{ marginTop: '2rem' }}>
-          <button
-            onClick={async () => {
-              const doc = new jsPDF();
-              let y = 10;
-              doc.setFontSize(14);
-              doc.text("📌 Meeting Summary", 10, y);
-              y += 10;
-              doc.setFontSize(10);
-              doc.text(summary, 10, y);
-
-              if (sentimentChartRef.current) {
-                const canvas = await html2canvas(sentimentChartRef.current);
-                const img = canvas.toDataURL("image/png");
-                doc.addPage();
-                doc.text("🧠 Sentiment Chart", 10, 10);
-                doc.addImage(img, "PNG", 10, 20, 180, 100);
-              }
-
-              if (videoChartRef.current) {
-                const canvas = await html2canvas(videoChartRef.current);
-                const img = canvas.toDataURL("image/png");
-                doc.addPage();
-                doc.text("🎥 Deepfake Chart", 10, 10);
-                doc.addImage(img, "PNG", 10, 20, 180, 100);
-              }
-
-              const fileName = file ? `${file.name.replace(/\.[^/.]+$/, "")}_Report.pdf` : 'meeting_report.pdf';
-              doc.save(fileName);
-            }}
-            style={{ padding: '0.6rem 2rem', fontSize: '1rem', backgroundColor: '#2196F3', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
-          >
-            ⬇️ Export PDF Report
+          <button onClick={handleExport} style={{ padding: '0.5rem 1.5rem', fontSize: '1rem', backgroundColor: '#2196F3', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+            ⬇️ Export Report
           </button>
         </div>
       )}
