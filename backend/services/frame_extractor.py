@@ -23,5 +23,5 @@ def extract_frames(video_path, output_dir="extracted_frames", interval_sec=30):
         count += 1
 
     vidcap.release()
-    print(f"✅ 提取完成！共保存 {saved} 张帧图像。")
+    print(f"✅ Extraction completed！Total {saved} frames were saved.")
     return frame_paths

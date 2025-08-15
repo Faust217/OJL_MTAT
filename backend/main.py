@@ -2,7 +2,7 @@ import os, sys
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from routes import transcribe, analyze
+from routes import transcribe, analyze, report
 
 # 确保当前文件夹在 sys.path
 sys.path.append(os.path.dirname(__file__))
@@ -19,6 +19,8 @@ app.add_middleware(
 
 app.include_router(transcribe.router)
 app.include_router(analyze.router)
+app.include_router(report.router)
+
 
 # 挂载静态目录
 app.mount("/static", StaticFiles(directory="static"), name="static")
