@@ -12,13 +12,14 @@ from nltk.tokenize import sent_tokenize
 import torch
 from typing import List, Dict
 
-# Load CardiffNLP RoBERTa model
+# Load CardiffNLP RoBERTa sentiment model once at import time.
+# Labels: negative / neutral / positive (3-class).
 model_name = "cardiffnlp/twitter-roberta-base-sentiment"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 model = AutoModelForSequenceClassification.from_pretrained(model_name)
 model.eval()
 
-# Label mapping
+# Index-to-label mapping used by the model outputs.
 labels = ['negative', 'neutral', 'positive']
 
 def analyze_sentiment(transcript: List[Dict]) -> List[Dict]:
@@ -31,9 +32,11 @@ def analyze_sentiment(transcript: List[Dict]) -> List[Dict]:
     
     for segment in transcript:
         text = segment["text"]
+        # Tokenize with the model tokenizer and run inference
         encoded_input = tokenizer(text, return_tensors='pt', truncation=True)
         with torch.no_grad():
             output = model(**encoded_input)
+            # Convert logits to probabilities with softmax.
             scores = output.logits[0].numpy()
             scores = softmax(scores)
             sentiment_id = scores.argmax()

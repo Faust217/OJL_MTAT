@@ -11,12 +11,15 @@ router = APIRouter()
 
 @router.post("/generate_pdf")
 async def generate_pdf(request: Request):
+    # Read JSON payload from frontend
     request_data = await request.json()
 
+    # Load Jinja2 template from ./templates/report_template.html
     env = Environment(loader=FileSystemLoader("templates"))
     template = env.get_template("report_template.html")
     html_content = template.render(data=request_data)
 
+    # Compose a unique output filename under temp/
     output_filename = f"report_{uuid.uuid4().hex[:8]}.pdf"
     output_path = f"temp/{output_filename}"
 
@@ -28,15 +31,12 @@ async def generate_pdf(request: Request):
 
 @router.get("/export_frames_zip")
 def export_frames_zip():
-    # ⚠️ 指定截图文件夹路径（记得替换为你实际的路径变量或时间戳）
-    frames_folder = "static/frames/20250812_164852"  # ❗替换为动态值也行
+    frames_folder = "static/frames/20250812_164852"  
     zip_output = "temp/deepfake_frames.zip"
 
-    # 若已有旧 zip，先删除
     if os.path.exists(zip_output):
         os.remove(zip_output)
 
-    # 创建 zip 文件
     shutil.make_archive(zip_output.replace(".zip", ""), 'zip', frames_folder)
 
     return FileResponse(

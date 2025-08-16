@@ -14,7 +14,7 @@ router = APIRouter()
 
 @router.post("/analyze")
 async def analyze_file(file: UploadFile = File(...)):
-    # 1) 保存上传文件到 temp
+    # # 1) Persist upload to temp/
     temp_dir = "temp"
     os.makedirs(temp_dir, exist_ok=True)
     file_path = os.path.join(temp_dir, file.filename)
@@ -23,12 +23,12 @@ async def analyze_file(file: UploadFile = File(...)):
 
     ext = file.filename.rsplit(".", 1)[-1].lower()
 
-    # --- 音频分析 ---
+    # --- Audio flow ---
     if ext in ["mp3", "wav"]:
         transcript = transcribe_audio(file_path)
         summary = generate_summary(transcript)
         sentiment = analyze_sentiment(transcript)
-        # 清理
+        # cleanup
         os.remove(file_path)
         return {
             "type": "audio",
@@ -37,14 +37,14 @@ async def analyze_file(file: UploadFile = File(...)):
             "sentiment": sentiment
         }
 
-    # --- 视频分析 ---
+    # --- Video flow ---
     elif ext in ["mp4", "avi", "mov"]:
-        # (A) 创建静态帧输出目录
+        # Prepare static frames output directory by timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         frame_output_dir = os.path.join("static", "frames", timestamp)
         os.makedirs(frame_output_dir, exist_ok=True)
 
-        # (B) 每 30s 抽帧并检测
+        # Extract frames every 30s and run deepfake prediction
         frames = extract_frames(file_path, frame_output_dir, interval_sec=30)
         frame_results = []
         fake_count = 0
@@ -59,7 +59,7 @@ async def analyze_file(file: UploadFile = File(...)):
                 "image_url": f"/static/frames/{timestamp}/{fname}"
             })
 
-        # (C) 提取音频并转为 wav
+        # Extract audio -> mono wav 16k
         audio_path = os.path.join(temp_dir, "audio.wav")
         try:
             (
@@ -72,12 +72,12 @@ async def analyze_file(file: UploadFile = File(...)):
         except Exception as e:
             return {"error": f"Failed to extract audio: {str(e)}"}
 
-        # (D) 音频转录/摘要/情感
+        # ASR + summary + sentiment on the extracted audio
         transcript = transcribe_audio(audio_path)
         summary = generate_summary(transcript)
         sentiment = analyze_sentiment(transcript)
 
-        # (E) 清理临时文件
+        # Cleanup temp files
         for p in [audio_path, file_path]:
             if os.path.exists(p):
                 os.remove(p)
@@ -86,21 +86,22 @@ async def analyze_file(file: UploadFile = File(...)):
             "type": "video",
             "frames_checked": len(frames),
             "fake_frames": fake_count,
-            "frame_details": frame_results,      # ← 前端用到的字段名
+            "frame_details": frame_results,     
             "transcript": transcript,
             "summary": summary,
             "sentiment": sentiment
         }
 
     else:
-        # 不支持的文件格式
+        # --- Unsupported extension ---
         os.remove(file_path)
         return {"error": "Unsupported file type."}
 
 
 @router.post("/analyze_frame")
 async def analyze_frame(file: UploadFile = File(...)):
-    # 备用：单帧检测接口
+    #     Single-frame deepfake check (used by RecordPage periodic snapshots).
+    #     Returns: {"label": "...", "score": float_in_[0,1]}
     filename = f"temp/frame_{uuid.uuid4().hex}.jpg"
     with open(filename, "wb") as f:
         f.write(await file.read())

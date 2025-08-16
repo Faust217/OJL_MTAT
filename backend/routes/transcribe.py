@@ -12,12 +12,31 @@ router = APIRouter()
 
 @router.post("/transcribe_chunk")
 async def transcribe_chunk(file: UploadFile = File(...)):
+    '''
+    Receive a single full recording (webm), convert to wav (mono/16k),
+    then run ASR + summarization + sentiment analysis.
+
+    Behavior intentionally preserved:
+    - Early return for very small/invalid chunks still returns a *list* of transcript items
+      (not a dict). This matches your original behavior and keeps the frontend contract unchanged.
+    - Error branches still set `summary`/`sentiment` to empty string as in your code.
+
+    Pipeline:
+      1) Read the uploaded bytes
+      2) Persist raw .webm into temp/
+      3) Convert to .wav via ffmpeg (mono @ 16k)
+      4) Run transcribe → summarize → sentiment
+      5) Cleanup temp files
+    '''
+
     raw_path = f"temp/chunk_{uuid.uuid4().hex}.webm"
     wav_path = raw_path.replace(".webm", ".wav")
 
+    # Read all bytes of the uploaded chunk
     content = await file.read()
     print("🧾 Chunk size:", len(content), "bytes")
 
+     # Small/invalid chunk guard — original early return shape is preserved
     if len(content) < 2048:
         return [{"start": 0, "end": 0, "text": "⚠️ Skipped empty or invalid chunk."}]
 
@@ -26,9 +45,11 @@ async def transcribe_chunk(file: UploadFile = File(...)):
         f.flush()
         os.fsync(f.fileno())
 
+     # Allow filesystem to settle a bit
     time.sleep(0.2)
 
     try:
+          # Convert webm → wav (mono/16k), keeping original ffmpeg flags
         (
             ffmpeg
             .input(raw_path, f='webm', analyzeduration='2147483647', probesize='2147483647')
@@ -37,6 +58,7 @@ async def transcribe_chunk(file: UploadFile = File(...)):
             .run(capture_stdout=True, capture_stderr=True)
         )
 
+        # Run ASR + summarization + sentiment
         transcript = transcribe_audio(wav_path, lang="en")
         summary = generate_summary(transcript)
         sentiment = analyze_sentiment(transcript)
@@ -59,11 +81,13 @@ async def transcribe_chunk(file: UploadFile = File(...)):
         sentiment = ""
 
     finally:
+        # Cleanup temp file
         if os.path.exists(raw_path):
             os.remove(raw_path)
         if os.path.exists(wav_path):
             os.remove(wav_path)
 
+    # Final response shape
     return {
         "transcript": transcript,
         "summary": summary,
