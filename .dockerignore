@@ -1,0 +1,10 @@
+.git
+**/__pycache__/
+*.pyc
+*.pyo
+.venv
+venv
+uploads
+extracted_frames
+cropped_faces
+static/frames
