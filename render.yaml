@@ -5,6 +5,7 @@ services:
     plan: free
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:app --host 0.0.0.0 --port 10000"
-    envVars: []
-    pythonVersion: 3.10.13
     rootDir: backend
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.13
