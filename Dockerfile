@@ -9,6 +9,15 @@ WORKDIR /app
 COPY backend/requirements-cloud.txt /app/requirements.txt
 RUN pip install --upgrade pip && pip install --no-cache-dir -r /app/requirements.txt
 
+RUN python - <<'PY'
+import nltk
+for pkg in ["vader_lexicon", "punkt", "punkt_tab"]:
+    try:
+        nltk.download(pkg)
+    except Exception as e:
+        print("Skip", pkg, e)
+PY
+
 COPY backend/ /app/
 
 ENV PORT=8000
