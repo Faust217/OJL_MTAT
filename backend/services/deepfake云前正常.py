@@ -3,14 +3,9 @@ from torchvision import transforms
 from PIL import Image
 import timm
 import cv2
+import face_recognition
 import numpy as np
 import os
-
-try:
-    import face_recognition  # type: ignore
-    FACE_DETECT_AVAILABLE = True
-except Exception:
-    FACE_DETECT_AVAILABLE = False
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -80,28 +75,30 @@ def predict_image(image_path):
     if image_cv is None:
         raise FileNotFoundError(f"Cannot read image: {image_path}")
 
-    face_locations = []
-    if FACE_DETECT_AVAILABLE:
-        rgb = cv2.cvtColor(image_cv, cv2.COLOR_BGR2RGB)
-        face_locations = face_recognition.face_locations(rgb)
-    else:
-        rgb = cv2.cvtColor(image_cv, cv2.COLOR_BGR2RGB)
+    # Detect faces; if found, crop the first face for classification
+    face_locations = face_recognition.face_locations(image_cv)
 
     if face_locations:
         top, right, bottom, left = face_locations[0]
-        face_img = rgb[top:bottom, left:right]
-        image_pil = Image.fromarray(cv2.resize(face_img, (299, 299)))
+        face_img = image_cv[top:bottom, left:right]
+        face_img = cv2.resize(face_img, (299, 299))
+        # Convert BGR -> RGB for PIL
+        face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
+        image_pil = Image.fromarray(face_img)
     else:
-        image_pil = Image.fromarray(rgb)
+        # Fallback: classify the whole image
+        image_pil = Image.open(image_path).convert("RGB")
 
+    # Preprocess and run inference
     image_tensor = transform(image_pil).unsqueeze(0).to(device)
+
     with torch.no_grad():
         output = model(image_tensor)
         probs = torch.softmax(output, dim=1)
-        score_fake = float(probs[0][0].item())  
+
+        # NOTE: This assumes index 0 corresponds to 'Fake'.
+        # If your training used different class ordering, adjust index accordingly.
+        score_fake = float(probs[0][0].item())
 
     label = "Fake" if score_fake > 0.5 else "Real"
     return label, round(score_fake, 4)
-
-def face_detection_enabled() -> bool:
-    return FACE_DETECT_AVAILABLE
