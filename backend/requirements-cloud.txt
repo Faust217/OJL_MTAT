@@ -1,9 +1,9 @@
 --extra-index-url https://download.pytorch.org/whl/cpu
 
+# ===== Torch (CPU only) =====
 torch==2.1.2+cpu
 torchvision==0.16.2+cpu
 torchaudio==2.1.2+cpu
-
 
 # Core API
 fastapi==0.110.0
@@ -21,14 +21,8 @@ faster-whisper==1.0.1
 ctranslate2==4.3.1
 av==11.0.0
 
-# Torch Stack (CPU wheels)
-torch==2.1.2
-torchvision==0.16.2
-torchaudio==2.1.2
-timm==0.9.12
-facenet-pytorch==2.6.0    
-
-# ML
+# Vision/ML
+timm==0.9.12          
 scikit-learn==1.4.2
 numpy==1.26.4
 scipy==1.11.4
@@ -40,7 +34,7 @@ threadpoolctl==3.2.0
 pdfkit==1.0.0
 pillow==10.2.0
 opencv-python==4.8.1.78
-ffmpeg-python==0.2.0      
+ffmpeg-python==0.2.0
 
 # Utilities
 requests==2.32.3
