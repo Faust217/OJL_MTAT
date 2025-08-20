@@ -4,7 +4,11 @@ import { PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import html2canvas from 'html2canvas';
 import { formatHMS, formatRange } from "../utils/time";
 
-
+/**
+ * Main Meeting Analyzer component.
+ * Handles file upload, transcription, summarization, sentiment analysis,
+ * deepfake detection, and PDF export.
+ */
 export default function MeetingAnalyzer() {
   const [file, setFile] = useState(null);
   const [transcript, setTranscript] = useState([]);
@@ -14,15 +18,6 @@ export default function MeetingAnalyzer() {
   const [frameDetails, setFrameDetails] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
-
-  const [notice, setNotice] = useState({ type: '', message: '' });
-  const showNotice = (type, message, ms = 6000) => {
-    setNotice({ type, message });
-    if (ms) {
-      clearTimeout(showNotice._t);
-      showNotice._t = setTimeout(() => setNotice({ type: '', message: '' }), ms);
-    }
-  };
 
   // Colors for charts (Positive / Neutral / Negative)
   const COLORS = ['#4caf50', '#8884d8', '#ff6b6b'];
@@ -46,10 +41,7 @@ export default function MeetingAnalyzer() {
 
   // -------------------- Upload & Analyze --------------------
   const handleUpload = async () => {
-    if (!file) {
-      showNotice('warning', 'Please select a file to analyze.');
-      return;
-    }
+    if (!file) return alert("Please select a file.");
     setLoading(true);
 
     // Reset previous results
@@ -60,7 +52,7 @@ export default function MeetingAnalyzer() {
     setFrameDetails([]);
 
     const form = new FormData();
-    form.append('file', file); 
+    form.append('file', file);
     try {
       const res = await axios.post('http://localhost:8000/analyze', form, {
         headers: { 'Content-Type':'multipart/form-data' }
@@ -77,15 +69,12 @@ export default function MeetingAnalyzer() {
           });
           setFrameDetails(d.frame_details||[]);
         }
-        showNotice('success', 'Analysis completed.');
       } else {
-        showNotice('error', 'Unknown return type.');
+        alert("Unknown return type");
       }
     } catch(e) {
       console.error(e);
-      const detail = e?.response?.data?.detail;
-      const msg = typeof detail === 'string' ? detail : (detail ? JSON.stringify(detail) : 'Failed to analyze.');
-      showNotice('error', msg);
+      alert("Failed to analyze ❌");
     } finally {
       setLoading(false);
     }
@@ -110,7 +99,7 @@ export default function MeetingAnalyzer() {
         deepfakeChartImage = canvas.toDataURL("image/png");
       }
 
-      // Compose final result
+      // Compose final result (time strings now unified)
       const finalAnalysisResult = {
         summary: summary ? summary.split('\n').map((line, i) => ({
           time: `S${i + 1}`, text: line
@@ -148,11 +137,9 @@ export default function MeetingAnalyzer() {
       a.download = (file?.name?.split('.')[0] || 'meeting') + '_report.pdf';
       a.click();
       window.URL.revokeObjectURL(url);
-
-      showNotice('success', 'Report downloaded.');
     } catch (e) {
       console.error("Failed to export PDF:", e);
-      showNotice('error', 'Export failed.');
+      alert("Export failed ❌");
     }
   };
 
@@ -161,30 +148,7 @@ export default function MeetingAnalyzer() {
     <div style={{padding:'2rem',maxWidth:800,margin:'auto',fontFamily:'Arial'}}>
       <h1>🎙 Meeting Analyzer</h1>
 
-      {/* Page notification */}
-      {notice.message && (
-        <div
-          style={{
-            margin: '0 0 1rem',
-            padding: '10px 14px',
-            borderRadius: 8,
-            background:
-              notice.type === 'error' ? '#fdecea' :
-              notice.type === 'warning' ? '#fff8e1' :
-              notice.type === 'success' ? '#e8f5e9' : '#e3f2fd',
-            border:
-              notice.type === 'error' ? '1px solid #f44336' :
-              notice.type === 'warning' ? '1px solid #ff9800' :
-              notice.type === 'success' ? '1px solid #4caf50' : '1px solid #2196f3',
-            color: '#333'
-          }}
-          role="status"
-        >
-          {notice.message}
-        </div>
-      )}
-
-      <input
+      <input 
         type="file" accept="audio/*,video/*"
         onChange={e=>setFile(e.target.files[0])}
         style={{margin:'1rem 0'}}
@@ -265,8 +229,8 @@ export default function MeetingAnalyzer() {
           <div style={{marginTop:20,display:'flex',flexWrap:'wrap',gap:12}}>
             {frameDetails.map((f,i)=>(
               <div key={i} style={{textAlign:'center',cursor:'pointer'}}>
-                <img
-                  src={`http://localhost:8000${f.image_url}`}
+                <img 
+                  src={`http://localhost:8000${f.image_url}`} 
                   alt={`frame-${i}`} width={120} style={{border:'1px solid #ccc'}}
                   onClick={()=>window.open(`http://localhost:8000${f.image_url}`)}
                 />

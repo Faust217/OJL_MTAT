@@ -1,7 +1,6 @@
 import React, { useRef, useState } from "react";
 import axios from "axios";
-import { Link, useNavigate } from "react-router-dom";
-// Charts & screenshot for embedding into PDF
+import { Link } from "react-router-dom";
 import html2canvas from "html2canvas";
 import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import { formatHMS, formatRange } from "../utils/time";
@@ -17,55 +16,56 @@ const RecordPage = () => {
 
   const [isRecording, setIsRecording] = useState(false);
   const [loading, setLoading] = useState(false);
+
   const [transcript, setTranscript] = useState([]);
   const [summary, setSummary] = useState("");
   const [sentiment, setSentiment] = useState([]);
   const [deepfakeResults, setDeepfakeResults] = useState([]);
   const [selectedFrameIndex, setSelectedFrameIndex] = useState(null);
 
-  // Clean up previous session's UI + resources
-  const resetSessionUI = () => {
-    // revoke old frame blob URLs to free memory
-    try {
-      deepfakeResults.forEach(f => f?.imageUrl && URL.revokeObjectURL(f.imageUrl));
-    } catch (_) {}
+  // Page notice
+  const [notice, setNotice] = useState({ type: "", message: "" });
+  const showNotice = (type, message, ms = 6000) => {
+    setNotice({ type, message });
+    if (ms) {
+      clearTimeout(showNotice._t);
+      showNotice._t = setTimeout(() => setNotice({ type: "", message: "" }), ms);
+    }
+  };
 
+  const [showTS, setShowTS] = useState(false);
+
+  const resetSessionUI = () => {
+    try {
+      deepfakeResults.forEach((f) => f?.imageUrl && URL.revokeObjectURL(f.imageUrl));
+    } catch {}
     setTranscript([]);
     setSummary("");
     setSentiment([]);
     setDeepfakeResults([]);
     setSelectedFrameIndex(null);
-
-    // stop leftover interval if any
     if (captureIntervalRef.current) {
       clearInterval(captureIntervalRef.current);
       captureIntervalRef.current = null;
     }
-
-    // stop any leftover media tracks in <video>
     if (videoRef.current?.srcObject) {
-      videoRef.current.srcObject.getTracks().forEach(t => t.stop());
+      videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
       videoRef.current.srcObject = null;
     }
-
-    // reset chunks and flags
     audioChunksRef.current = [];
     setLoading(false);
   };
 
-  // Colors for charts 
   const COLORS = ["#00C49F", "#FF6B6B", "#8884D8"];
 
-  // Build Sentiment pie data from sentiment array
   const sentimentChartData = sentiment.length
     ? [
         { name: "Positive", value: sentiment.filter((s) => s.sentiment === "positive").length },
-        { name: "Neutral",  value: sentiment.filter((s) => s.sentiment === "neutral").length },
+        { name: "Neutral", value: sentiment.filter((s) => s.sentiment === "neutral").length },
         { name: "Negative", value: sentiment.filter((s) => s.sentiment === "negative").length },
       ]
     : [];
 
-  // Build Deepfake pie data from deepfakeResults
   const deepfakeFakeCount = deepfakeResults.filter((d) =>
     String(d.label || "").toLowerCase().includes("fake")
   ).length;
@@ -77,252 +77,189 @@ const RecordPage = () => {
       ]
     : [];
 
-  // Start recording audio and attach display stream to <video> N also start periodic frame capture
   const startRecording = async () => {
-    // clear previous run
     resetSessionUI();
 
-    // If a previous recorder exists and is still active, stop it safely
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      try { mediaRecorderRef.current.stop(); } catch (_) {}
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
     }
-
-    // Close previous AudioContext if any
     if (audioCtxRef?.current && audioCtxRef.current.state !== "closed") {
-      try { await audioCtxRef.current.close(); } catch (_) {}
+      try {
+        await audioCtxRef.current.close();
+      } catch {}
       audioCtxRef.current = null;
       mixedDestRef.current = null;
     }
+
     try {
-      // 1) Mic (with some basic voice-friendly constraints)
       const mic = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true }
+        audio: { echoCancellation: true, noiseSuppression: true },
       });
-
-      // 2) Screen + System audio  ← 在弹窗里选择「Chrome Tab」并勾选「Share tab audio」
-      const screen = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: true
-      });
-
-      // Show the shared screen in <video> (as before)
+      const screen = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       if (videoRef.current) videoRef.current.srcObject = screen;
 
-      // 3) Inspect if screen has an audio track
-      const sysTracks = screen.getAudioTracks();
-      console.log("screen audio tracks:", sysTracks.map(t => ({
-        label: t.label, enabled: t.enabled, muted: t.muted, readyState: t.readyState
-      })));
-
-      // If a screen audio track exists, make sure it's enabled
-      if (sysTracks[0]) {
-        try { sysTracks[0].enabled = true; } catch (_) {}
-      } else {
-        // No system audio case — give a helpful hint
-        alert(
-          "No system audio detected from the shared screen.\n" +
-          "Tips:\n" +
-          "• Choose a specific Chrome Tab and check 'Share tab audio'.\n" +
-          "• On macOS, system audio is generally available only for a shared Tab.\n" +
-          "• On Windows, 'Entire screen' + 'Share system audio' can work."
-        );
-      }
-
-      // 4) WebAudio: mix mic + system into ONE audio stream
+      const sysTrack = screen.getAudioTracks()[0];
       const ac = new (window.AudioContext || window.webkitAudioContext)();
       audioCtxRef.current = ac;
       const dest = ac.createMediaStreamDestination();
       mixedDestRef.current = dest;
 
-      // Create sources
       const micSrc = ac.createMediaStreamSource(mic);
       micSrc.connect(dest);
-
-      if (sysTracks[0]) {
-        const sysStream = new MediaStream([sysTracks[0]]);
+      if (sysTrack) {
+        const sysStream = new MediaStream([sysTrack]);
         const sysSrc = ac.createMediaStreamSource(sysStream);
         sysSrc.connect(dest);
+      } else {
+        showNotice("info", "Cannot detect system audio。If need to record audio，Please choose Chrome Tab and click “Share tab audio”。");
       }
 
-      // 5) Recorder records the MIXED stream (one unified track)
       const mixedStream = dest.stream;
-      const mediaRecorder = new MediaRecorder(mixedStream, { mimeType: "audio/webm;codecs=opus" });
-      mediaRecorderRef.current = mediaRecorder;
+      const mr = new MediaRecorder(mixedStream, { mimeType: "audio/webm;codecs=opus" });
+      mediaRecorderRef.current = mr;
       audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (e) => {
+      mr.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
 
-      // Some browsers require a user gesture to start/resume the context
       if (ac.state === "suspended") {
-        try { await ac.resume(); } catch (_) {}
+        try {
+          await ac.resume();
+        } catch {}
       }
-
-      mediaRecorder.start(); // 可选：传 timeslice 5000 做分片
+      mr.start();
 
       setIsRecording(true);
       startTimeRef.current = Date.now();
-
-      // Keep your deepfake frame snapshots
       captureIntervalRef.current = setInterval(captureAndAnalyzeFrame, 10000);
+
+      showNotice("success", "Star recording。Notice：Select Chrome Tab and click “Share tab audio” can record system audio");
     } catch (err) {
-      alert(
-        "Mic/Display permission error: " + err.message +
-        "\nMake sure you select a Chrome Tab and check 'Share tab audio'."
+      showNotice(
+        "error",
+        "Mic/Screen authorization failed. Please allow browser permissions. To record system audio, select the chrome tab and check share tab audio. "
       );
     }
   };
 
-  // Grab a frame from the display <video>, send to /analyze_frame, append result to deepfakeResults
   const captureAndAnalyzeFrame = async () => {
     const video = videoRef.current;
     if (!video) return;
 
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
     const ctx = canvas.getContext("2d");
-    ctx.drawImage(video, 0, 0);
+    try {
+      ctx.drawImage(video, 0, 0);
+    } catch {
+      return;
+    }
 
-    canvas.toBlob(
-      async (blob) => {
-        if (!blob) return;
-        const form = new FormData();
-        form.append("file", blob, "frame.jpg");
-
-        try {
-          const res = await axios.post("http://localhost:8000/analyze_frame", form);
-          const secs = (Date.now() - startTimeRef.current) / 1000;
-          const timeLabel = formatHMS(secs);
-          const blobUrl = URL.createObjectURL(blob);
-
-          setDeepfakeResults((prev) => [
-            ...prev, // keep existing frames
-            {
-              time: timeLabel,
-              label: res.data.label,
-              score: (res.data.score * 100).toFixed(1),
-              imageBlob: blob,
-              imageUrl: blobUrl,
-            },
-          ]);
-        } catch (e) {
-          console.error("Frame analysis error", e);
-        }
-      },
-      "image/jpeg"
-    );
-  };
-
-  // Stop recording, stop timers and streams, POST audio to /transcribe_chunk for transcript/summary/sentiment
-const stopRecording = async () => {
-  return new Promise((resolve) => {
-    const mediaRecorder = mediaRecorderRef.current;
-    if (!mediaRecorder) return;
-
-    mediaRecorder.onstop = async () => {
-      clearInterval(captureIntervalRef.current);
-
-      // Stop display stream and audio stream tracks
-      if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
-      }
-      mediaRecorder.stream.getTracks().forEach((t) => t.stop());
-
-      // Combine recorded audio chunks and send to backend
-      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-
-      // quick size check (helps catch "system audio not shared")
-      if (audioBlob.size < 200 * 1024) {
-        alert(
-          "It looks like no audio was captured. " +
-          "Please enable 'Share system audio' when starting screen sharing."
-        );
-      }
-
-      const formData = new FormData();
-      formData.append("file", audioBlob, "full_recording.webm");
-
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const form = new FormData();
+      form.append("file", blob, "frame.jpg");
       try {
-        setLoading(true);
-        const res = await axios.post("http://localhost:8000/transcribe_chunk", formData);
-
-        // be robust to both shapes (array early-return vs object)
-        const data = res.data;
-        const rawTranscript = Array.isArray(data) ? data : (data.transcript || []);
-        const rawSentiment = Array.isArray(data) ? []   : (data.sentiment  || []);
-        const summaryText  = Array.isArray(data) ? ""   : (data.summary    || "");
-
-        // filter out blank / dot-only segments
-        const cleanedTranscript = (rawTranscript || []).filter(
-          (s) => s && s.text && s.text.trim() && s.text.trim() !== "."
-        );
-        setTranscript(cleanedTranscript);
-
-        // keep sentiment aligned with cleaned transcript length
-        const cleanedSentiment = cleanedTranscript.map((_, i) => rawSentiment[i]).filter(Boolean);
-        setSentiment(cleanedSentiment);
-
-        setSummary(summaryText);
-      } catch (err) {
-        setTranscript([
+        const res = await axios.post("http://localhost:8000/analyze_frame", form);
+        const secs = (Date.now() - startTimeRef.current) / 1000;
+        const timeLabel = formatHMS(secs);
+        const blobUrl = URL.createObjectURL(blob);
+        setDeepfakeResults((prev) => [
+          ...prev,
           {
-            start: 0,
-            end: 0,
-            text: `⚠️ ${err.response?.data?.detail || err.message}`,
+            time: timeLabel,
+            label: res.data.label,
+            score: (res.data.score * 100).toFixed(1),
+            imageBlob: blob,
+            imageUrl: blobUrl,
           },
         ]);
-        setSummary("");
-        setSentiment([]);
-      } finally {
-        setLoading(false);
+      } catch (e) {
       }
-
-      if (audioCtxRef?.current && audioCtxRef.current.state !== "closed") {
-        try { await audioCtxRef.current.close(); } catch (_) {}
-        audioCtxRef.current = null;
-        mixedDestRef.current = null;
-      }
-      setIsRecording(false);
-      resolve();
-    };
-
-    mediaRecorder.stop();
-  });
-};
-
-
-  // (Kept for safety; button removed from UI)
-  const handleDownloadReport = () => {
-    const report = {
-      transcript,
-      summary,
-      sentiment,
-      deepfake: deepfakeResults.map(({ time, label, score }) => ({ time, label, score })),
-    };
-    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "meeting_report.json";
-    a.click();
-    URL.revokeObjectURL(url);
+    }, "image/jpeg");
   };
 
-  // -------------------- Export PDF --------------------
-  // Capture both charts to base64 and send full payload to /generate_pdf
+  const stopRecording = async () => {
+    return new Promise((resolve) => {
+      const mr = mediaRecorderRef.current;
+      if (!mr) return;
+
+      mr.onstop = async () => {
+        clearInterval(captureIntervalRef.current);
+        if (videoRef.current?.srcObject) videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
+        mr.stream.getTracks().forEach((t) => t.stop());
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        if (audioBlob.size < 200 * 1024) {
+          showNotice(
+            "warning",
+            "Audio is barely captured. To record system sound, select the Chrome tab and check 'Share tab audio' when you start sharing."
+          );
+        }
+
+        const formData = new FormData();
+        formData.append("file", audioBlob, "full_recording.webm");
+
+        try {
+          setLoading(true);
+          const res = await axios.post("http://localhost:8000/transcribe_chunk", formData);
+          const data = res.data;
+          const rawTranscript = Array.isArray(data) ? data : data.transcript || [];
+          const rawSentiment = Array.isArray(data) ? [] : data.sentiment || [];
+          const summaryText = Array.isArray(data) ? "" : data.summary || "";
+
+          const cleanedTranscript = (rawTranscript || []).filter(
+            (s) => s && s.text && s.text.trim() && s.text.trim() !== "."
+          );
+          setTranscript(cleanedTranscript);
+
+          const cleanedSentiment = cleanedTranscript.map((_, i) => rawSentiment[i]).filter(Boolean);
+          setSentiment(cleanedSentiment);
+
+          setSummary(summaryText);
+          showNotice("success", "Complete analysis");
+        } catch (err) {
+          const detail = err?.response?.data?.detail;
+          const msg =
+            typeof detail === "string"
+              ? detail
+              : detail
+              ? JSON.stringify(detail)
+              : err?.message || "Unknown error";
+          setTranscript([{ start: 0, end: 0, text: `⚠️ ${msg}` }]);
+          setSummary("");
+          setSentiment([]);
+          showNotice("error", `Transcript / analysis failed : ${msg}`);
+        } finally {
+          setLoading(false);
+        }
+
+        if (audioCtxRef?.current && audioCtxRef.current.state !== "closed") {
+          try {
+            await audioCtxRef.current.close();
+          } catch {}
+          audioCtxRef.current = null;
+          mixedDestRef.current = null;
+        }
+        setIsRecording(false);
+        resolve();
+      };
+
+      mr.stop();
+    });
+  };
+
   const handleExportPDF = async () => {
     try {
-      // Capture Sentiment Pie
       const sentimentEl = document.getElementById("sentiment-chart");
       let sentimentChartBase64 = null;
       if (sentimentEl) {
         const canvas = await html2canvas(sentimentEl);
         sentimentChartBase64 = canvas.toDataURL("image/png");
       }
-
-      // Capture Deepfake Pie
       const deepfakeEl = document.getElementById("deepfake-chart");
       let deepfakeChartBase64 = null;
       if (deepfakeEl) {
@@ -330,11 +267,8 @@ const stopRecording = async () => {
         deepfakeChartBase64 = canvas.toDataURL("image/png");
       }
 
-      // Build export payload 
       const exportData = {
-        summary: summary
-          ? summary.split("\n").map((line, i) => ({ time: `S${i + 1}`, text: line }))
-          : [],
+        summary: summary ? summary.split("\n").map((line, i) => ({ time: `S${i + 1}`, text: line })) : [],
         transcript: (transcript || []).map((t, i) => ({
           time: formatRange(t.start, t.end),
           text: t.text,
@@ -354,16 +288,13 @@ const stopRecording = async () => {
         deepfake_chart: deepfakeChartBase64,
       };
 
-      // Request backend to generate PDF
       const res = await fetch("http://localhost:8000/generate_pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(exportData),
       });
-
       if (!res.ok) throw new Error("PDF generation failed");
 
-      // Trigger browser download
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -371,14 +302,15 @@ const stopRecording = async () => {
       a.download = "meeting_report.pdf";
       a.click();
       window.URL.revokeObjectURL(url);
+
+      showNotice("success", "Report downloaded");
     } catch (e) {
       console.error("PDF export error:", e);
-      alert("PDF export failed ❌");
+      showNotice("error", "Export PDF failed");
     }
   };
 
-  // -------------------- UI --------------------
-    return (
+  return (
     <div style={{ backgroundColor: "#f7f9fa", minHeight: "100vh", padding: "2rem" }}>
       <div
         style={{
@@ -390,7 +322,6 @@ const stopRecording = async () => {
           boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
         }}
       >
-        {/* Back navigation (same style as UploadPage) */}
         <Link
           to="/"
           style={{
@@ -402,7 +333,7 @@ const stopRecording = async () => {
             marginBottom: "1rem",
             display: "inline-block",
             textDecoration: "none",
-            color: "inherit"
+            color: "inherit",
           }}
           aria-label="Back to Home"
           title="Back to Home"
@@ -413,6 +344,38 @@ const stopRecording = async () => {
         <h2 style={{ textAlign: "center", fontSize: "1.8rem", marginBottom: "1.5rem", color: "#333" }}>
           🎥 Record & Analyze Meeting
         </h2>
+
+        {/* Page notification */}
+        {notice.message && (
+          <div
+            style={{
+              margin: "0 auto 1rem",
+              maxWidth: 900,
+              padding: "10px 14px",
+              borderRadius: 8,
+              background:
+                notice.type === "error"
+                  ? "#fdecea"
+                  : notice.type === "warning"
+                  ? "#fff8e1"
+                  : notice.type === "success"
+                  ? "#e8f5e9"
+                  : "#e3f2fd",
+              border:
+                notice.type === "error"
+                  ? "1px solid #f44336"
+                  : notice.type === "warning"
+                  ? "1px solid #ff9800"
+                  : notice.type === "success"
+                  ? "1px solid #4caf50"
+                  : "1px solid #2196f3",
+              color: "#333",
+            }}
+            role="status"
+          >
+            {notice.message}
+          </div>
+        )}
 
         <div style={{ textAlign: "center" }}>
           <video
@@ -432,89 +395,86 @@ const stopRecording = async () => {
 
         {loading && <p style={{ textAlign: "center" }}>⏳ Processing audio…</p>}
 
-        <div style={{ textAlign: "left", maxWidth: "700px", margin: "1rem auto" }}>
-          {/* Transcript */}
-          <h3>📝 Transcript</h3>
-          <ul>
-            {transcript.map((seg, i) => (
-              <li key={i}>
-                {formatRange(seg.start, seg.end)}: {seg.text}
-              </li>
-            ))}
-          </ul>
+        {/* Transcript + Sentiment */}
+        {(transcript.length > 0 || sentiment.length > 0) && (
+          <section id="ts-panel" style={{ marginTop: "1.5rem" }}>
+            <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 20 }}>📝</span> Transcript + Sentiment
+              <button onClick={() => setShowTS((v) => !v)} style={{ marginLeft: 12 }}>
+                {showTS ? "Hide" : "Show"}
+              </button>
+            </h3>
 
-          {/* Summary */}
-          {summary && (
-            <>
-              <h3>🧠 Summary</h3>
-              <p>{summary}</p>
-            </>
-          )}
-
-          {/* Sentiment list */}
-          {sentiment.length > 0 && (
-            <>
-              <h3>💬 Sentiment Analysis</h3>
-              <ul>
-                {sentiment.map((seg, i) => (
-                  <li key={i}>
-                    {new Date(seg.start * 1000).toISOString().substr(14, 5)} -{" "}
-                    {new Date(seg.end * 1000).toISOString().substr(14, 5)}: {seg.sentiment} (
-                    {(seg.score * 100).toFixed(1)}%)
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          {/* Sentiment Pie Chart (for PDF capture) */}
-          {sentimentChartData.length > 0 && (
-            <section id="sentiment-chart" style={{ marginTop: "1rem" }}>
-              <h3>🧠 Sentiment Overview</h3>
-              <PieChart width={300} height={250}>
-                <Pie data={sentimentChartData} dataKey="value" cx={150} cy={120} innerRadius={50} outerRadius={90} label>
-                  {sentimentChartData.map((e, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+            {showTS && (
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 24 }}>
+                <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: 14 }}>
+                  {(transcript || []).map((seg, i) => (
+                    <div key={i} style={{ marginBottom: 8, fontFamily: "ui-monospace, Menlo, Consolas" }}>
+                      <strong>{formatRange(seg.start, seg.end)}:</strong>{" "}
+                      {seg.text}{" "}
+                      {sentiment[i] && (
+                        <em style={{ color: "#666" }}>
+                          → {sentiment[i].sentiment} ({(sentiment[i].score * 100).toFixed(1)}%)
+                        </em>
+                      )}
+                    </div>
                   ))}
-                </Pie>
-                <Tooltip />
-                <Legend />
-              </PieChart>
-            </section>
-          )}
+                </div>
 
-          {/* Deepfake list */}
-          {deepfakeResults.length > 0 && (
-            <>
-              <h3>🕵️ Deepfake Snapshot Results</h3>
-              <ul>
-                {deepfakeResults.map((d, i) => (
-                  <li key={i}>
-                    [{d.time}] ▶ {d.label} ({d.score}%)
-                    &nbsp;
-                    <button onClick={() => setSelectedFrameIndex(i)}>🔍 View Frame</button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
+                <div id="sentiment-chart" style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <PieChart width={320} height={240}>
+                    <Pie data={sentimentChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
+                      {sentimentChartData.map((e, i) => (
+                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
 
-          {/* Deepfake frame preview */}
-          {selectedFrameIndex !== null && (
-            <div style={{ marginTop: "1rem" }}>
-              <h4>Frame Preview</h4>
-              <img
-                src={deepfakeResults[selectedFrameIndex].imageUrl}
-                alt="frame"
-                style={{ maxWidth: "90%", border: "1px solid #ccc", borderRadius: 6 }}
-              />
-              <br />
-              <button onClick={() => setSelectedFrameIndex(null)}>Close</button>
-            </div>
-          )}
+        {/* Summary */}
+        {summary && (
+          <section style={{ marginTop: "1.5rem" }}>
+            <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 20 }}>🧠</span> Summary
+            </h3>
+            <pre style={{ whiteSpace: "pre-wrap", background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: 14 }}>
+{summary}
+            </pre>
+          </section>
+        )}
 
-          {/* Deepfake Pie Chart (for PDF capture) */}
-          {deepfakeResults.length > 0 && (
+        {/* Deepfake  */}
+        {deepfakeResults.length > 0 && (
+          <>
+            <h3 style={{ marginTop: "1.5rem" }}>🕵️ Deepfake Snapshot Results</h3>
+            <ul>
+              {deepfakeResults.map((d, i) => (
+                <li key={i}>
+                  [{d.time}] ▶ {d.label} ({d.score}%)
+                  &nbsp;<button onClick={() => setSelectedFrameIndex(i)}>🔍 View Frame</button>
+                </li>
+              ))}
+            </ul>
+
+            {selectedFrameIndex !== null && (
+              <div style={{ marginTop: "1rem" }}>
+                <h4>Frame Preview</h4>
+                <img
+                  src={deepfakeResults[selectedFrameIndex].imageUrl}
+                  alt="frame"
+                  style={{ maxWidth: "90%", border: "1px solid #ccc", borderRadius: 6 }}
+                />
+                <br />
+                <button onClick={() => setSelectedFrameIndex(null)}>Close</button>
+              </div>
+            )}
+
             <section id="deepfake-chart" style={{ marginTop: "1rem" }}>
               <h3>🎥 Deepfake Detection Overview</h3>
               <p>Total Frames Captured: {deepfakeResults.length}</p>
@@ -524,8 +484,8 @@ const stopRecording = async () => {
                 {deepfakeResults.length ? ((deepfakeFakeCount / deepfakeResults.length) * 100).toFixed(2) : "0.00"}%
               </p>
 
-              <PieChart width={300} height={250}>
-                <Pie data={videoPieData} dataKey="value" cx={150} cy={120} innerRadius={50} outerRadius={90} label>
+              <PieChart width={320} height={240}>
+                <Pie data={videoPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label>
                   {videoPieData.map((e, i) => (
                     <Cell key={i} fill={COLORS[i % COLORS.length]} />
                   ))}
@@ -534,15 +494,14 @@ const stopRecording = async () => {
                 <Legend />
               </PieChart>
             </section>
-          )}
+          </>
+        )}
 
-          {/* Export PDF button */}
-          {(transcript.length > 0 || deepfakeResults.length > 0) && (
-            <div style={{ marginTop: "2rem", textAlign: "center" }}>
-              <button onClick={handleExportPDF}>📄 Export PDF Report</button>
-            </div>
-          )}
-        </div>
+        {(transcript.length > 0 || deepfakeResults.length > 0) && (
+          <div style={{ marginTop: "2rem", textAlign: "center" }}>
+            <button onClick={handleExportPDF}>📄 Export PDF Report</button>
+          </div>
+        )}
       </div>
     </div>
   );
