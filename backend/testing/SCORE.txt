@@ -1,0 +1,28 @@
+TRANSCRIPTION
+Overall WER: 7.05%  (edits=68, ref_words=964)
+
+SUMMARIZATION
+ROUGE1:
+  Precision: 0.4182
+  Recall:    0.4742
+  F1 Score:  0.4444
+ROUGE2:
+  Precision: 0.1927
+  Recall:    0.2188
+  F1 Score:  0.2049
+ROUGEL:
+  Precision: 0.2636
+  Recall:    0.2990
+  F1 Score:  0.2802
+
+
+SENTIMENT
+              precision    recall  f1-score   support
+
+    negative     0.7017    0.8038    0.7493       158
+     neutral     0.7364    0.7137    0.7248       227
+    positive     0.8081    0.6957    0.7477       115
+
+    accuracy                         0.7380       500
+   macro avg     0.7487    0.7377    0.7406       500
+weighted avg     0.7419    0.7380    0.7378       500
