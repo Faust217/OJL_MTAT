@@ -1,16 +1,22 @@
-# Ignore Python virtual environment
+# Python & Node stuff
 backend/venv/
-
-# Ignore Node.js dependencies
 frontend/node_modules/
 
-# Ignore Python cache
+# System
 __pycache__/
 *.pyc
-
-# Ignore system files
 .DS_Store
 Thumbs.db
-*.mp4
+
+# Large test files
+backend/testing/AnalysisTime/
+
+# Media files
 *.mp3
 *.MP3
+*.mp4
+*.MP4
+!frontend/public/intro.mp3
+
+# Ignore large test files
+/testing/AnalysisTime/
