@@ -11,10 +11,6 @@
   <img src="https://img.shields.io/badge/React-⚛️-blue" />
 </p>
 
-<p align="center">
-  <img src="assets/hero.png" alt="Hero" width="780">
-</p>
-
 ## Overview
 🚧 This project is built for educational purposes by the developer and is still under active development.
 A lightweight web app that turns recorded meetings into actionable outputs:
