@@ -1,6 +1,6 @@
 <h1 align="center">AI-Driven Meeting Analysis</h1>
 <p align="center">
-  Transcript → Abstractive Summary → Sentiment → Deepfake (PDF export)
+  Transcript → Summary → Sentiment → Deepfake
 </p>
 
 <p align="center">
@@ -9,8 +9,6 @@
   <img src="https://img.shields.io/badge/Node-18+-informational" />
   <img src="https://img.shields.io/badge/FastAPI-✨-brightgreen" />
   <img src="https://img.shields.io/badge/React-⚛️-blue" />
-  <img src="https://img.shields.io/github/last-commit/YOUR_GH_USERNAME/YOUR_REPO_NAME" />
-  <img src="https://img.shields.io/github/stars/YOUR_GH_USERNAME/YOUR_REPO_NAME?style=social" />
 </p>
 
 <p align="center">
@@ -20,7 +18,7 @@
 ## Overview
 A lightweight web app that turns recorded meetings into actionable outputs:
 - **Transcript** (Faster-Whisper)
-- **Abstractive Summary** (BART-SAMSum)
+- **Summary** (BART-SAMSum)
 - **Sentiment** per segment (RoBERTa)
 - **Deepfake** frame scoring (XceptionNet)
 - **Consolidated PDF** export
@@ -39,14 +37,6 @@ A lightweight web app that turns recorded meetings into actionable outputs:
   <img src="assets/architecture.png" alt="Architecture" width="820">
 </p>
 
-## Screenshots
-| Home | Upload | Record |
-|---|---|---|
-| ![Home](assets/screen-home.png) | ![Upload](assets/screen-upload.png) | ![Record](assets/screen-record.png) |
-
-| Analyzer (Summary pinned) | Deepfake grid | PDF Export |
-|---|---|---|
-| ![Analyzer](assets/screen-analyzer.png) | ![Deepfake](assets/screen-deepfake.png) | ![Export](assets/screen-export.png) |
 
 ## Quick Start
 
