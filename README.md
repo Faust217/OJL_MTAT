@@ -16,6 +16,7 @@
 </p>
 
 ## Overview
+🚧 This project is built for educational purposes by the developer and is still under active development.
 A lightweight web app that turns recorded meetings into actionable outputs:
 - **Transcript** (Faster-Whisper)
 - **Summary** (BART-SAMSum)
