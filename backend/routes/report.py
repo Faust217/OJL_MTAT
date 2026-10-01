@@ -4,8 +4,9 @@ import pdfkit
 import shutil
 from jinja2 import Environment, FileSystemLoader
 import uuid
-import os
 from pdfkit.configuration import Configuration
+
+from runtime_paths import STATIC_FRAMES_DIR, TEMP_DIR, TEMPLATES_DIR
 
 router = APIRouter()
 
@@ -14,33 +15,35 @@ async def generate_pdf(request: Request):
     # Read JSON payload from frontend
     request_data = await request.json()
 
-    # Load Jinja2 template from ./templates/report_template.html
-    env = Environment(loader=FileSystemLoader("templates"))
+    # Load the template from the backend resource directory.
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
     template = env.get_template("report_template.html")
     html_content = template.render(data=request_data)
 
     # Compose a unique output filename under temp/
     output_filename = f"report_{uuid.uuid4().hex[:8]}.pdf"
-    output_path = f"temp/{output_filename}"
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    output_path = TEMP_DIR / output_filename
 
     
     config = Configuration(wkhtmltopdf=r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe")
-    pdfkit.from_string(html_content, output_path, configuration=config)
+    pdfkit.from_string(html_content, str(output_path), configuration=config)
 
-    return FileResponse(output_path, filename="meeting_report.pdf", media_type='application/pdf')
+    return FileResponse(str(output_path), filename="meeting_report.pdf", media_type='application/pdf')
 
 @router.get("/export_frames_zip")
 def export_frames_zip():
-    frames_folder = "static/frames/20250812_164852"  
-    zip_output = "temp/deepfake_frames.zip"
+    frames_folder = STATIC_FRAMES_DIR / "20250812_164852"
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    zip_output = TEMP_DIR / "deepfake_frames.zip"
 
-    if os.path.exists(zip_output):
-        os.remove(zip_output)
+    if zip_output.exists():
+        zip_output.unlink()
 
-    shutil.make_archive(zip_output.replace(".zip", ""), 'zip', frames_folder)
+    shutil.make_archive(str(zip_output.with_suffix("")), 'zip', str(frames_folder))
 
     return FileResponse(
-        zip_output,
+        str(zip_output),
         filename="deepfake_frames.zip",
         media_type="application/zip"
     )

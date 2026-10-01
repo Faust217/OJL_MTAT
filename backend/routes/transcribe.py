@@ -4,6 +4,7 @@ import uuid
 import time
 import ffmpeg
 
+from runtime_paths import TEMP_DIR
 from services.transcriber import transcribe_audio
 from services.summarizer import generate_summary
 from services.sentiment import analyze_sentiment
@@ -29,8 +30,9 @@ async def transcribe_chunk(file: UploadFile = File(...)):
       5) Cleanup temp files
     '''
 
-    raw_path = f"temp/chunk_{uuid.uuid4().hex}.webm"
-    wav_path = raw_path.replace(".webm", ".wav")
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
+    raw_path = TEMP_DIR / f"chunk_{uuid.uuid4().hex}.webm"
+    wav_path = raw_path.with_suffix(".wav")
 
     # Read all bytes of the uploaded chunk
     content = await file.read()
@@ -40,7 +42,7 @@ async def transcribe_chunk(file: UploadFile = File(...)):
     if len(content) < 2048:
         return [{"start": 0, "end": 0, "text": "⚠️ Skipped empty or invalid chunk."}]
 
-    with open(raw_path, "wb") as f:
+    with raw_path.open("wb") as f:
         f.write(content)
         f.flush()
         os.fsync(f.fileno())
@@ -52,14 +54,14 @@ async def transcribe_chunk(file: UploadFile = File(...)):
           # Convert webm → wav (mono/16k), keeping original ffmpeg flags
         (
             ffmpeg
-            .input(raw_path, f='webm', analyzeduration='2147483647', probesize='2147483647')
-            .output(wav_path, format='wav', acodec='pcm_s16le', ac=1, ar=16000)
+            .input(str(raw_path), f='webm', analyzeduration='2147483647', probesize='2147483647')
+            .output(str(wav_path), format='wav', acodec='pcm_s16le', ac=1, ar=16000)
             .overwrite_output()
             .run(capture_stdout=True, capture_stderr=True)
         )
 
         # Run ASR + summarization + sentiment
-        transcript = transcribe_audio(wav_path, lang="en")
+        transcript = transcribe_audio(str(wav_path), lang="en")
         summary = generate_summary(transcript)
         sentiment = analyze_sentiment(transcript)
 
@@ -82,10 +84,8 @@ async def transcribe_chunk(file: UploadFile = File(...)):
 
     finally:
         # Cleanup temp file
-        if os.path.exists(raw_path):
-            os.remove(raw_path)
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
+        raw_path.unlink(missing_ok=True)
+        wav_path.unlink(missing_ok=True)
 
     # Final response shape
     return {

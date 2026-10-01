@@ -4,7 +4,9 @@ from PIL import Image
 import timm
 import cv2
 import numpy as np
-import os
+from pathlib import Path
+
+from runtime_paths import EXTRACTED_FRAMES_DIR, MODEL_DIR
 
 try:
     import face_recognition  # type: ignore
@@ -15,7 +17,7 @@ except Exception:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Path to the trained Xception model (2 classes: Real/Fake)
-model_path = "model/xception_deepfake_final.pt"
+model_path = MODEL_DIR / "xception_deepfake_final.pt"
 # Create Xception and load weights
 # Note: If loading fails, check model_path and timm version compatibility.
 model = timm.create_model('xception', pretrained=False, num_classes=2)
@@ -30,8 +32,9 @@ transform = transforms.Compose([
     transforms.Normalize([0.5] * 3, [0.5] * 3)
 ])
 
-def extract_frames(video_path, output_dir="extracted_frames", interval_sec=30):
-    vidcap = cv2.VideoCapture(video_path)
+def extract_frames(video_path, output_dir=None, interval_sec=30):
+    output_dir = Path(output_dir) if output_dir else EXTRACTED_FRAMES_DIR
+    vidcap = cv2.VideoCapture(str(video_path))
     if not vidcap.isOpened():
         print(f"[deepfake.extract_frames] Failed to open video: {video_path}")
         return []
@@ -46,13 +49,13 @@ def extract_frames(video_path, output_dir="extracted_frames", interval_sec=30):
     saved = 0
     frame_paths = []
 
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     while success:
         if count % interval == 0:
-            frame_filename = f"{output_dir}/frame{saved}.jpg"
-            cv2.imwrite(frame_filename, image)
-            frame_paths.append(frame_filename)
+            frame_filename = output_dir / f"frame{saved}.jpg"
+            cv2.imwrite(str(frame_filename), image)
+            frame_paths.append(str(frame_filename))
             saved += 1
         success, image = vidcap.read()
         count += 1
@@ -76,7 +79,7 @@ def predict_image(image_path):
             - score: probability of the 'Fake' class in [0, 1]
     """
     # Read BGR image for face detection
-    image_cv = cv2.imread(image_path)
+    image_cv = cv2.imread(str(image_path))
     if image_cv is None:
         raise FileNotFoundError(f"Cannot read image: {image_path}")
 
