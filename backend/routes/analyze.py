@@ -42,8 +42,8 @@ async def analyze_file(file: UploadFile = File(...)):
     # --- Video flow ---
     elif ext in ["mp4", "avi", "mov"]:
         # Keep frames as business output, but make each request's directory unique.
-        output_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{request_id[:8]}"
-        frame_output_dir = STATIC_FRAMES_DIR / output_id
+        frame_set_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{request_id}"
+        frame_output_dir = STATIC_FRAMES_DIR / frame_set_id
         frame_output_dir.mkdir(parents=True, exist_ok=True)
         audio_path = TEMP_DIR / f"audio_{request_id}.wav"
 
@@ -60,7 +60,7 @@ async def analyze_file(file: UploadFile = File(...)):
                 frame_results.append({
                     "label": label,
                     "score": round(score * 100, 1),
-                    "image_url": f"/static/frames/{output_id}/{fname}"
+                    "image_url": f"/static/frames/{frame_set_id}/{fname}"
                 })
 
             # Extract audio -> mono wav 16k, preserving the existing error response.
@@ -82,6 +82,7 @@ async def analyze_file(file: UploadFile = File(...)):
 
             return {
                 "type": "video",
+                "frame_set_id": frame_set_id,
                 "frames_checked": len(frames),
                 "fake_frames": fake_count,
                 "frame_details": frame_results,
