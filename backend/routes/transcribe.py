@@ -36,7 +36,7 @@ async def transcribe_chunk(file: UploadFile = File(...)):
 
     # Read all bytes of the uploaded chunk
     content = await file.read()
-    print("🧾 Chunk size:", len(content), "bytes")
+    print("[transcribe_chunk] Chunk size:", len(content), "bytes")
 
      # Small/invalid chunk guard — original early return shape is preserved
     if len(content) < 2048:
@@ -66,7 +66,7 @@ async def transcribe_chunk(file: UploadFile = File(...)):
         sentiment = analyze_sentiment(transcript)
 
     except ffmpeg.Error as e:
-        print("🔥 ffmpeg error detail:", e.stderr.decode())
+        print("[transcribe_chunk] ffmpeg error:", e.stderr.decode(errors="replace"))
         transcript = [{
             "start": 0, "end": 0,
             "text": f"⚠️ ffmpeg error: {e.stderr.decode().strip().splitlines()[-1]}"
