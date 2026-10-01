@@ -3,6 +3,9 @@ import axios from 'axios';
 import { PieChart, Pie, Cell, Tooltip, Legend } from 'recharts';
 import html2canvas from 'html2canvas';
 import { formatHMS, formatRange } from "../utils/time";
+import { apiUrl, downloadResponseBlob, readApiError } from "../config/api";
+
+const SUPPORTED_UPLOAD_EXTENSIONS = ["mp3", "wav", "mp4", "avi", "mov"];
 
 
 export default function MeetingAnalyzer() {
@@ -12,6 +15,7 @@ export default function MeetingAnalyzer() {
   const [sentiment, setSentiment] = useState([]);
   const [videoResult, setVideoResult] = useState(null);
   const [frameDetails, setFrameDetails] = useState([]);
+  const [frameSetId, setFrameSetId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
 
@@ -50,6 +54,12 @@ export default function MeetingAnalyzer() {
       showNotice('warning', 'Please select a file to analyze.');
       return;
     }
+
+    const extension = file.name.split('.').pop()?.toLowerCase();
+    if (!SUPPORTED_UPLOAD_EXTENSIONS.includes(extension)) {
+      showNotice('warning', 'Supported formats: MP3, WAV, MP4, AVI, and MOV.');
+      return;
+    }
     setLoading(true);
 
     // Reset previous results
@@ -58,11 +68,12 @@ export default function MeetingAnalyzer() {
     setSentiment([]);
     setVideoResult(null);
     setFrameDetails([]);
+    setFrameSetId(null);
 
     const form = new FormData();
     form.append('file', file); 
     try {
-      const res = await axios.post('http://localhost:8000/analyze', form, {
+      const res = await axios.post(apiUrl('/analyze'), form, {
         headers: { 'Content-Type':'multipart/form-data' }
       });
       const d = res.data;
@@ -76,6 +87,7 @@ export default function MeetingAnalyzer() {
             fakeFrames: d.fake_frames
           });
           setFrameDetails(d.frame_details||[]);
+          setFrameSetId(typeof d.frame_set_id === 'string' ? d.frame_set_id : null);
         }
         showNotice('success', 'Analysis completed.');
       } else {
@@ -132,27 +144,46 @@ export default function MeetingAnalyzer() {
         deepfake_chart: deepfakeChartImage
       };
 
-      const res = await fetch("http://localhost:8000/generate_pdf", {
+      const res = await fetch(apiUrl("/generate_pdf"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(finalAnalysisResult)
       });
 
-      if (!res.ok) throw new Error("PDF generation failed");
+      if (!res.ok) {
+        throw new Error(await readApiError(res, "PDF generation failed."));
+      }
 
-      // Trigger browser download
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = (file?.name?.split('.')[0] || 'meeting') + '_report.pdf';
-      a.click();
-      window.URL.revokeObjectURL(url);
+      await downloadResponseBlob(
+        res,
+        (file?.name?.replace(/\.[^.]+$/, '') || 'meeting') + '_report.pdf'
+      );
 
       showNotice('success', 'Report downloaded.');
     } catch (e) {
       console.error("Failed to export PDF:", e);
-      showNotice('error', 'Export failed.');
+      showNotice('error', e?.message || 'Export failed.');
+    }
+  };
+
+  const handleFramesExport = async () => {
+    if (!frameSetId) {
+      showNotice('warning', 'Analyze a video before exporting frames.');
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        apiUrl(`/export_frames_zip?frame_set_id=${encodeURIComponent(frameSetId)}`)
+      );
+      if (!res.ok) {
+        throw new Error(await readApiError(res, "Frames export failed."));
+      }
+      await downloadResponseBlob(res, `frames_${frameSetId}.zip`);
+      showNotice('success', 'Frames ZIP downloaded.');
+    } catch (e) {
+      console.error("Failed to export frames:", e);
+      showNotice('error', e?.message || 'Frames export failed.');
     }
   };
 
@@ -185,8 +216,11 @@ export default function MeetingAnalyzer() {
       )}
 
       <input
-        type="file" accept="audio/*,video/*"
-        onChange={e=>setFile(e.target.files[0])}
+        type="file" accept=".mp3,.wav,.mp4,.avi,.mov"
+        onChange={e=>{
+          setFile(e.target.files[0] || null);
+          setFrameSetId(null);
+        }}
         style={{margin:'1rem 0'}}
       />
 
@@ -266,9 +300,9 @@ export default function MeetingAnalyzer() {
             {frameDetails.map((f,i)=>(
               <div key={i} style={{textAlign:'center',cursor:'pointer'}}>
                 <img
-                  src={`http://localhost:8000${f.image_url}`}
+                  src={apiUrl(f.image_url)}
                   alt={`frame-${i}`} width={120} style={{border:'1px solid #ccc'}}
-                  onClick={()=>window.open(`http://localhost:8000${f.image_url}`)}
+                  onClick={()=>window.open(apiUrl(f.image_url))}
                 />
                 <div>{f.label} ({f.score}%)</div>
               </div>
@@ -289,7 +323,8 @@ export default function MeetingAnalyzer() {
 
           {videoResult && (
             <button
-              onClick={() => window.open("http://localhost:8000/export_frames_zip")}
+              onClick={handleFramesExport}
+              disabled={!frameSetId}
               style={{ padding: '0.5rem 1rem', background: '#FF9800', color: '#fff', border: 'none', borderRadius: 6 }}
             >
               📁 Export Frames ZIP
