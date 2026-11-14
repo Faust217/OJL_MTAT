@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import html2canvas from "html2canvas";
 import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
 import { formatHMS, formatRange } from "../utils/time";
+import { apiUrl, downloadResponseBlob, readApiError } from "../config/api";
 
 const RecordPage = () => {
   const mediaRecorderRef = useRef(null);
@@ -163,7 +164,7 @@ const RecordPage = () => {
       const form = new FormData();
       form.append("file", blob, "frame.jpg");
       try {
-        const res = await axios.post("http://localhost:8000/analyze_frame", form);
+        const res = await axios.post(apiUrl("/analyze_frame"), form);
         const secs = (Date.now() - startTimeRef.current) / 1000;
         const timeLabel = formatHMS(secs);
         const blobUrl = URL.createObjectURL(blob);
@@ -205,7 +206,7 @@ const RecordPage = () => {
 
         try {
           setLoading(true);
-          const res = await axios.post("http://localhost:8000/transcribe_chunk", formData);
+          const res = await axios.post(apiUrl("/transcribe_chunk"), formData);
           const data = res.data;
           const rawTranscript = Array.isArray(data) ? data : data.transcript || [];
           const rawSentiment = Array.isArray(data) ? [] : data.sentiment || [];
@@ -288,25 +289,21 @@ const RecordPage = () => {
         deepfake_chart: deepfakeChartBase64,
       };
 
-      const res = await fetch("http://localhost:8000/generate_pdf", {
+      const res = await fetch(apiUrl("/generate_pdf"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(exportData),
       });
-      if (!res.ok) throw new Error("PDF generation failed");
+      if (!res.ok) {
+        throw new Error(await readApiError(res, "PDF generation failed."));
+      }
 
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "meeting_report.pdf";
-      a.click();
-      window.URL.revokeObjectURL(url);
+      await downloadResponseBlob(res, "meeting_report.pdf");
 
       showNotice("success", "Report downloaded");
     } catch (e) {
       console.error("PDF export error:", e);
-      showNotice("error", "Export PDF failed");
+      showNotice("error", e?.message || "Export PDF failed");
     }
   };
 

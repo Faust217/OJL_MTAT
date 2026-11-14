@@ -1,14 +1,21 @@
-import os, sys
+import sys
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from routes import transcribe, analyze, report
 
-# Ensure current folder is in sys.path for relative imports
-sys.path.append(os.path.dirname(__file__))
+# Support both `uvicorn main:app` from backend/ and
+# `uvicorn backend.main:app` from the repository root.
+BACKEND_ROOT = Path(__file__).resolve().parent
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
-# Pre-create static/ to avoid mount errors if the folder does not exist
-os.makedirs("static", exist_ok=True)
+from routes import analyze, report, transcribe
+from runtime_paths import STATIC_DIR, ensure_runtime_directories
+
+
+ensure_runtime_directories()
 
 app = FastAPI()
 
@@ -27,4 +34,4 @@ app.include_router(analyze.router)
 app.include_router(report.router)
 
 # Serve static files (extracted frames etc.)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

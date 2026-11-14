@@ -8,3 +8,19 @@ uploads
 extracted_frames
 cropped_faces
 static/frames
+
+# Local dependency/build outputs that are not Linux runtime inputs.
+backend/venv/
+frontend/node_modules/
+frontend/dist/
+
+# Backend runtime-generated data. The application recreates required directories.
+backend/temp/
+backend/uploads/
+backend/extracted_frames/
+backend/cropped_faces/
+backend/static/frames/
+
+# Historical and test-only assets are not imported by the active backend.
+backend/Abandoned/
+backend/testing/
